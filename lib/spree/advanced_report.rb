@@ -1,6 +1,7 @@
 module Spree
   class AdvancedReport
     include Ruport
+    include Spree::Admin::AdvancedReportHelper
     attr_accessor :orders, :product_text, :date_text, :taxon_text, :ruportdata, :data, :params, :taxon, :product, :product_in_taxon, :unfiltered_params
 
     def name
@@ -19,16 +20,14 @@ module Spree
 
       params[:search] ||= {}
       if params[:search][:completed_at_gt].blank?
-        if (Order.count > 0) && Order.minimum(:completed_at)
-          params[:search][:completed_at_gt] = Order.minimum(:completed_at).beginning_of_day
-        end
+        self.unfiltered_params[:completed_at_gt] = datepicker_field_value((SpreeAdvancedReporting.default_min_date).beginning_of_day)
+        params[:search][:completed_at_gt] = (SpreeAdvancedReporting.default_min_date).beginning_of_day #Order.minimum(:completed_at).beginning_of_day
       else
         params[:search][:completed_at_gt] = Time.zone.parse(params[:search][:completed_at_gt]).beginning_of_day rescue ""
       end
       if params[:search][:completed_at_lt].blank?
-        if (Order.count > 0) && Order.maximum(:completed_at)
-          params[:search][:completed_at_lt] = Order.maximum(:completed_at).end_of_day
-        end
+        self.unfiltered_params[:completed_at_lt] = datepicker_field_value(Time.now.end_of_day)
+        params[:search][:completed_at_lt] = Time.now.end_of_day #Order.maximum(:completed_at).end_of_day
       else
         params[:search][:completed_at_lt] = Time.zone.parse(params[:search][:completed_at_lt]).end_of_day rescue ""
       end
@@ -38,7 +37,7 @@ module Spree
 
       search = Order.search(params[:search])
       # self.orders = search.state_does_not_equal('canceled')
-      self.orders = search.result
+      self.orders = search.result.includes(:line_items)
 
       self.product_in_taxon = true
       if params[:advanced_reporting]
@@ -61,19 +60,19 @@ module Spree
       end
 
       # Above searchlogic date settings
-      self.date_text = "Date Range:"
+      self.date_text = "#{I18n.t(:date_range)}<br />"
       if self.unfiltered_params
         if self.unfiltered_params[:completed_at_gt] != '' && self.unfiltered_params[:completed_at_lt] != ''
-          self.date_text += " From #{self.unfiltered_params[:completed_at_gt]} to #{self.unfiltered_params[:completed_at_lt]}"
+          self.date_text += "#{I18n.t(:from)} #{self.unfiltered_params[:completed_at_gt]} #{I18n.t(:to)} #{self.unfiltered_params[:completed_at_lt]}"
         elsif self.unfiltered_params[:completed_at_gt] != ''
-          self.date_text += " After #{self.unfiltered_params[:completed_at_gt]}"
+          self.date_text += " #{I18n.t(:after)} #{self.unfiltered_params[:completed_at_gt]}"
         elsif self.unfiltered_params[:completed_at_lt] != ''
-          self.date_text += " Before #{self.unfiltered_params[:completed_at_lt]}"
+          self.date_text += " #{I18n.t(:before)} #{self.unfiltered_params[:completed_at_lt]}"
         else
-          self.date_text += " All"
+          self.date_text += " #{I18n.t(:all)}"
         end
       else
-        self.date_text += " All"
+        self.date_text += " #{I18n.t(:all)}"
       end
     end
 
@@ -103,17 +102,17 @@ module Spree
     end
 
     def profit(order)
-      profit = order.line_items.inject(0) { |profit, li| profit + (li.variant.price - li.variant.cost_price.to_f)*li.quantity }
+      profit = order.line_items.inject(0) { |profit, li| profit += (li.price - (li.cost_price || li.variant.cost_price || li.variant.product.master.cost_price.to_f))*li.quantity }
       if !self.product.nil? && product_in_taxon
-        profit = order.line_items.select { |li| li.product == self.product }.inject(0) { |profit, li| profit + (li.variant.price - li.variant.cost_price.to_f)*li.quantity }
+        profit = order.line_items.select { |li| li.product == self.product }.inject(0) { |profit, li| profit += (li.price - (li.cost_price || li.variant.cost_price || li.variant.product.master.cost_price.to_f))*li.quantity }
       elsif !self.taxon.nil?
-        profit = order.line_items.select { |li| li.product && li.product.taxons.include?(self.taxon) }.inject(0) { |profit, li| profit + (li.variant.price - li.variant.cost_price.to_f)*li.quantity }
+        profit = order.line_items.select { |li| li.product && li.product.taxons.include?(self.taxon) }.inject(0) { |profit, li| profit += (li.price - (li.cost_price || li.variant.cost_price || li.variant.product.master.cost_price.to_f))*li.quantity }
       end
       self.product_in_taxon ? profit : 0
     end
 
     def units(order)
-      units = order.line_items.sum(:quantity)
+      units = order.line_items.inject(0){|units, li| units += li.quantity} #sum(:quantity)
       if !self.product.nil? && product_in_taxon
         units = order.line_items.select { |li| li.product == self.product }.inject(0) { |a, b| a += b.quantity }
       elsif !self.taxon.nil?

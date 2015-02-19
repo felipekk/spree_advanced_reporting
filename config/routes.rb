@@ -1,4 +1,4 @@
- Spree::Core::Engine.routes.prepend do
+Spree::Core::Engine.add_routes do
   #namespace :admin do
   #  resources :reports, :only => [:index, :show] do
   #    collection do
@@ -34,5 +34,7 @@
   match '/admin/reports/geo_profit' => 'admin/reports#geo_profit', :via => [:get, :post],
                                                                     :as => 'geo_profit_admin_reports'
 
-  # match "/admin" => "admin/advanced_report_overview#index", :as => :admin
+  match "/admin/reports/dashboard" => "admin/advanced_report_overview#index", :via => [:get, :post],
+                                                                               :as => 'dashboard_admin_reports'
+
 end
